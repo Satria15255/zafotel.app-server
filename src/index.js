@@ -6,16 +6,24 @@ import connectDB from "./config/db.js";
 import authRoutes from "./routes/authRutes.js";
 import roomRoutes from "./routes/roomRoutes.js";
 import bookingRoutes from "./routes/bookingRoutes.js";
+import informationRoutes from "./routes/informationRoutes.js";
 
 dotenv.config();
 const app = express();
 
-app.use(cors());
+app.use(
+  cors({
+    origin: ["http://localhost:5173"],
+    methods: ["GET", "POST", "PUT", "DELETE"],
+    credentials: true,
+  })
+);
 app.use(express.json());
 
 app.use("/api/auth", authRoutes);
 app.use("/api/rooms", roomRoutes);
 app.use("/api/bookings", bookingRoutes);
+app.use("/api/informations", informationRoutes);
 
 connectDB();
 

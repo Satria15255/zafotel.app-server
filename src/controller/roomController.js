@@ -3,22 +3,34 @@ import cloudinary from "../config/cloudinary.js";
 
 export const createRoom = async (req, res) => {
   try {
-    const { name, description, price, capacity, roomType, status } = req.body;
+    const { name, description, size, capacity, bedType, amenities, facilities, price, totalUnits } = req.body;
 
-    let imageUrl = "";
-    if (req.file) {
-      const result = await cloudinary.uploader.upload(req.file.path);
-      imageUrl = result.secure_url;
+    let imageUrls = [];
+    if (req.files && req.files.length > 0) {
+      const uploadPromise = req.files.map(async (file) => {
+        const result = await cloudinary.uploader.upload(file.path);
+        return result.secure_url;
+      });
+      imageUrls = await Promise.all(uploadPromise);
     }
+
+    const total = Number(totalUnits) || 0;
 
     const newRoom = new Room({
       name,
       description,
       price,
-      capacity,
-      image: imageUrl,
-      roomType,
-      status: status || "available",
+      details: {
+        size,
+        capacity,
+        bedType,
+        amenities: amenities ? amenities.split(",") : [],
+      },
+      facilities: facilities ? facilities.split(",") : [],
+      totalUnits: total,
+      availableUnits: total,
+      bookedUnits: 0,
+      image: imageUrls,
     });
 
     await newRoom.save();
@@ -49,12 +61,25 @@ export const getRoomById = async (req, res) => {
 
 export const updateRoom = async (req, res) => {
   try {
-    const { name, description, price, capacity, roomType, status } = req.body;
-    const updateData = { name, description, price, capacity, roomType, status };
+    const { name, description, price, size, capacity, bedType, amenities, facilities, totalUnits, bookedUnits } = req.body;
+    const updateData = {
+      name,
+      description,
+      price,
+      totalUnits: Number(totalUnits),
+      bookedUnits: Number(bookedUnits),
+      details: { size, capacity: Number(capacity), bedType, amenities: amenities ? amenities.split(",") : [] },
+      facilities: facilities ? facilities.split(",") : [],
+    };
 
-    if (req.file) {
-      const result = await cloudinary.uploader.upload(req.file.path);
-      updateData.image = result.secure_url;
+    if (req.files && req.files.length > 0) {
+      const imageUrls = await Promise.all(
+        req.files.map(async (file) => {
+          const result = await cloudinary.uploader.upload(file.path);
+          return result.secure_url;
+        })
+      );
+      updateData.image = imageUrls;
     }
 
     const updatedRoom = await Room.findByIdAndUpdate(req.params.id, updateData, {
@@ -62,9 +87,14 @@ export const updateRoom = async (req, res) => {
     });
 
     if (!updatedRoom) return res.status(404).json({ message: "Room not found" });
+
+    updatedRoom.availableUnits = updatedRoom.totalUnits - updatedRoom.bookedUnits;
+    updatedRoom.status = updatedRoom.availableUnits > 0 ? "Available" : "Booked";
+    await updatedRoom.save();
+
     res.json({ message: "Room updated successfully", room: updatedRoom });
   } catch (error) {
-    res.stastus(500).json({ message: "Failed updating room", error: error.message });
+    res.status(500).json({ message: "Failed updating room", error: error.message });
   }
 };
 
@@ -76,5 +106,51 @@ export const deleteRoom = async (req, res) => {
     res.json({ message: "Room deleted successfully" });
   } catch (error) {
     res.status(500).json({ message: "Failed delete room", error: error.message });
+  }
+};
+
+export const bookRoom = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { unitsToBook } = req.body;
+
+    const room = await Room.findById(id);
+    if (!room) return res.status(404).json({ message: "Room not found" });
+
+    if (room.availableUnits < unitsToBook) {
+      return res.status(400).json({ message: "Not enough available units" });
+    }
+
+    room.bookedUnits += unitsToBook;
+    room.availableUnits = room.totalUnits - room.bookedUnits;
+    room.status = room.availableUnits > 0 ? "Available" : "Booked";
+
+    await room.save();
+    res.status(200).json({ message: "Room booked succesfully", room });
+  } catch (error) {
+    res.status(500).json({ message: "Failed booking room", error: error.message });
+  }
+};
+
+export const cancelBooking = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { unitsToCancel } = req.body;
+
+    const room = await Room.findById(id);
+    if (!room) return res.status(404).json({ message: "Room not found" });
+
+    if (room.bookedUnits < unitsToCancel) {
+      return res.status(400).json({ message: "Cancel exceeds booked units" });
+    }
+
+    room.bookedUnits -= unitsToCancel;
+    room.availableUnits = room.totalUnits - room.bookedUnits;
+    room.status = room.availableUnits > 0 ? "Available" : "Booked";
+
+    await room.save();
+    res.status(200).json({ message: "Booking cancelled successfully", room });
+  } catch (error) {
+    res.status(500).json({ message: "Failed cancelled booking", error: error.message });
   }
 };

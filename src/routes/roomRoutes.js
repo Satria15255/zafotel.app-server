@@ -5,10 +5,10 @@ import upload from "../middleware/upload.js";
 
 const router = express.Router();
 
-router.post("/", protect, admin, upload.single("image"), createRoom);
+router.post("/", protect, admin, upload.array("image", 4), createRoom);
 router.get("/", getAllRooms);
 router.get("/:id", getRoomById);
-router.put("/:id", protect, admin, upload.single("image"), updateRoom);
+router.put("/:id", protect, admin, upload.array("image", 4), updateRoom);
 router.delete("/:id", protect, admin, deleteRoom);
 
 export default router;
