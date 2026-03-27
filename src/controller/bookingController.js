@@ -1,46 +1,110 @@
 import Booking from "../models/bookingModels.js";
 import Room from "../models/roomModels.js";
+import { generateBookingCode } from "../utils/generateBookingCode.js";
 
 export const createBooking = async (req, res) => {
   try {
-    const { user, userName, phoneNumber, roomId, checkInDate, checkOutDate, unitsBooked } = req.body;
+    const { roomId, checkInDate, checkOutDate, unitsBooked, paymentMethod, userName, phoneNumber } = req.body;
 
     const room = await Room.findById(roomId);
-    if (!room) return res.status(401).json({ message: "Room not found" });
-
-    if (room.availableUnits < unitsBooked) {
-      return res.status(400).json({ message: "Not enough available units" });
+    if (!room || !room.isActive) {
+      return res.status(404).json({ message: "Room Not Available" });
     }
 
-    const chekIn = new Date(checkInDate);
-    const chekOut = new Date(checkOutDate);
-    const totalNights = Math.ceil((chekOut - chekIn) / (1000 * 60 * 60 * 24));
+    const checkIn = new Date(checkInDate);
+    const checkOut = new Date(checkOutDate);
+    const now = new Date();
+
+    // Booking window validation
+    const startOfCheckInDay = new Date(checkIn);
+    startOfCheckInDay.setHours(0, 1, 0, 0);
+
+    const minBookingTime = new Date(startOfCheckInDay.getTime() - 12 * 60 * 60 * 1000);
+    const maxBookingTime = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+
+    if (now > minBookingTime) {
+      return res.status(400).json({ message: "Booking to late (H-10 rules)" });
+    }
+
+    if (checkIn > maxBookingTime) {
+      return res.status(400).json({ message: "Booking exceds H-30 limit" });
+    }
+
+    if (checkOut <= checkIn) {
+      return res.status(400).json({ message: "Invalid check-out date" });
+    }
+
+    // Overlapping check
+    const overlappingBookings = await Booking.find({
+      room: roomId,
+      bookingStatus: { $nin: ["Cancelled", "No Show"] },
+      checkInDate: { $lt: checkOut },
+      checkOutDate: { $gt: checkIn },
+    });
+
+    const totalBookedUnits = overlappingBookings.reduce((sum, booking) => sum + booking.unitsBooked, 0);
+
+    if (totalBookedUnits + unitsBooked > room.totalUnits) {
+      return res.status(400).json({ message: "Room not available for selected dates" });
+    }
+
+    // ❗ Generate unique booking code
+    let bookingCode;
+    let isUnique = false;
+
+    while (!isUnique) {
+      bookingCode = generateBookingCode();
+      const existing = await Booking.findOne({ bookingCode });
+      if (!existing) isUnique = true;
+    }
+
+    const totalNights = Math.ceil((checkOut - checkIn) / (1000 * 60 * 60 * 24));
 
     const totalPrice = room.price * totalNights * unitsBooked;
+
+    let bookingStatus = "Pending";
+    let paymentStatus = "Unpaid";
+    let expiresAt = null;
+
+    if (paymentMethod === "Bank Transfer") {
+      bookingStatus = "Pending";
+      paymentStatus = "Unpaid";
+      expiresAt = new Date(now.getTime() + 60 * 60 * 1000); // 1 hour
+    }
+
+    if (paymentMethod === "Cash") {
+      bookingStatus = "Confirmed";
+      paymentStatus = "Unpaid";
+    }
 
     const newBooking = new Booking({
       user: req.user._id,
       room: roomId,
+      bookingCode,
       userName,
       phoneNumber,
-      checkInDate,
-      checkOutDate,
+      checkInDate: checkIn,
+      checkOutDate: checkOut,
       totalNights,
       unitsBooked,
       totalPrice,
-      status: "Confirmed",
+      bookingStatus,
+      paymentMethod,
+      paymentStatus,
+      expiresAt,
     });
 
     await newBooking.save();
 
-    room.bookedUnits += unitsBooked;
-    room.availableUnits = room.totalUnits - room.bookedUnits;
-    room.status = room.availableUnits > 0 ? "Available" : "Booked";
-    await room.save();
-
-    res.status(201).json({ message: "Booking created", booking: newBooking });
+    res.status(201).json({
+      message: "Booking created successfully",
+      booking: newBooking,
+    });
   } catch (error) {
-    res.status(500).json({ message: "Failed booking the room", error: error.message });
+    res.status(500).json({
+      message: "Failed to create booking",
+      error: error.message,
+    });
   }
 };
 
@@ -63,45 +127,162 @@ export const getUserBookings = async (req, res) => {
   }
 };
 
-export const cancelBooking = async (req, res) => {
+export const getBookingById = async (req, res) => {
   try {
-    const booking = await Booking.findById(req.params.id).populate("room");
+    const booking = await Booking.findById(req.params.id).populate("room", "name price image").populate("user", "name email");
+
     if (!booking) return res.status(404).json({ message: "Booking not found" });
 
-    if (booking.status === "Cancelled") return res.status(400).json({ message: "Already cancelled" });
-
-    const room = booking.room;
-
-    const newBookedUnits = room.bookedUnits - booking.unitsBooked;
-    room.bookedUnits = Math.max(newBookedUnits, 0);
-
-    room.availableUnits = Math.min(room.totalUnits - room.bookedUnits, room.totalUnits);
-
-    if (room.availableUnits === 0) {
-      room.status = "Fully Booked";
-    } else if (room.availableUnits === room.totalUnits) {
-      room.status = "Available";
-    } else {
-      room.status = "Partially Booked";
+    if (booking.user._id.toString() !== req.user._id.toString() && req.user.role !== "admin") {
+      return res.status(403).json({ message: "Access denied" });
     }
 
-    await room.save();
+    res.json(booking);
+  } catch (error) {
+    res.status(500).json({ message: "Failed get bookings", error: error.message });
+  }
+};
 
-    booking.status = "Cancelled";
+export const cancelBooking = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const booking = await Booking.findById(id);
+
+    if (!booking) {
+      return res.status(404).json({ message: "Booking not found" });
+    }
+
+    if (booking.bookingStatus === "Cancelled") {
+      return res.status(400).json({ message: "Booking already cancelled" });
+    }
+
+    if (booking.bookingStatus === "Checked In") {
+      return res.status(400).json({ message: "Cannot cancel after check in" });
+    }
+
+    const now = new Date();
+    const checkin = new Date(booking.checkInDate);
+
+    const startOfCheckInDay = new Date(checkin);
+    startOfCheckInDay.setHours(0, 1, 0, 0);
+
+    const refundDeadline = new Date(startOfCheckInDay.getTime() - 10 * 60 * 60 * 1000);
+
+    let refundPercentage = 1; //default 100%
+
+    if (now > refundDeadline) {
+      refundPercentage = 0.3; //30%
+    }
+
+    const refundAmount = booking.totalPrice * refundPercentage;
+
+    booking.bookingStatus = "Cancelled";
+    booking.paymentStatus = "Refunded";
+    booking.cancelledAt = now;
+    booking.refundAmount = refundAmount;
+
+    if (booking.bookingStatus === "Paid") {
+      refundPercentage = 0;
+    }
+
     await booking.save();
 
-    res.status(201).json({
-      message: "Booking cancelled",
-      booking,
-      updatedRoom: {
-        name: room.name,
-        totalUnits: room.totalUnits,
-        bookedUnits: room.bookedUnits,
-        availableUnits: room.availableUnits,
-        status: room.status,
-      },
+    res.json({
+      message: "Booking cancelled succesfully",
+      refundPercentage: refundPercentage * 100,
+      refundAmount,
     });
   } catch (error) {
     res.status(404).json({ message: "Failed to cancel booking", error: error.message });
   }
 };
+
+// Payment Controller
+export const confirmPayment = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const booking = await Booking.findById(id);
+
+    if (!booking) {
+      return res.status(404).json({ message: "Booking not found" });
+    }
+
+    if (booking.paymentMethod !== "Bank Transfer") {
+      return res.status(400).json({ message: "Invalid payment method" });
+    }
+
+    if (booking.paymentStatus !== "Unpaid") {
+      return res.status(400).json({ message: "Payment Submitted" });
+    }
+
+    if (booking.expiresAt && new Date() > booking.expiresAt) {
+      booking.bookingStatus = "Cancelled";
+      await booking.save();
+      return res.status(400).json({ message: "Booking Expired" });
+    }
+
+    booking.paymentProof = req.file.path;
+    booking.paymentStatus = "In review";
+
+    await booking.save();
+
+    res.json({ message: "Booking Successfully" });
+  } catch (error) {
+    res.status(500).json({
+      message: "Payment Failed",
+      error: error.message,
+    });
+  }
+};
+
+export const approvePayment = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const booking = await Booking.findById(id);
+
+    if (!booking) {
+      return res.status(404).json({ message: "Booking not found" });
+    }
+
+    if (booking.paymentStatus !== "Waiting Confirmation") {
+      return res.status(400).json({ message: "Invalid payment status" });
+    }
+
+    booking.paymentStatus = "Paid";
+    booking.bookingStatus = "Confirmed";
+    booking.confirmedAt = new Date();
+
+    await booking.save();
+    res.json({ message: "Payment Approved!" });
+  } catch (error) {
+    res.status(500).json({ message: "Failed Aprroved Payment", error: error.message });
+  }
+};
+
+export const rejectPayment = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const booking = await Booking.findById(id);
+
+    if (!booking) {
+      return res.status(404).json({ message: "Booking not found" });
+    }
+
+    booking.paymentStatus = "Rejected";
+
+    await booking.save();
+
+    res.status(200).json({ message: "Payment Rejected" });
+  } catch (error) {
+    res.status(500).json({
+      message: "Rejected Failed",
+      error: error.message,
+    });
+  }
+};
+
+

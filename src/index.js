@@ -7,6 +7,7 @@ import authRoutes from "./routes/authRutes.js";
 import roomRoutes from "./routes/roomRoutes.js";
 import bookingRoutes from "./routes/bookingRoutes.js";
 import informationRoutes from "./routes/informationRoutes.js";
+import checkInRoutes from "./routes/checkInRoutes.js";
 
 dotenv.config();
 const app = express();
@@ -16,7 +17,7 @@ app.use(
     origin: ["http://localhost:5173", "https://zafotel-app-client.vercel.app"],
     methods: ["GET", "POST", "PUT", "DELETE"],
     credentials: true,
-  })
+  }),
 );
 app.use(express.json());
 
@@ -24,6 +25,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/rooms", roomRoutes);
 app.use("/api/bookings", bookingRoutes);
 app.use("/api/informations", informationRoutes);
+app.use("/api/check-in", checkInRoutes);
 
 connectDB();
 
