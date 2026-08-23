@@ -15,7 +15,7 @@ const app = express();
 app.use(
   cors({
     origin: ["http://localhost:5173", "https://zafotel-app-client.vercel.app"],
-    methods: ["GET", "POST", "PUT", "DELETE"],
+    methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
     credentials: true,
   }),
 );
