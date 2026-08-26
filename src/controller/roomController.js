@@ -1,6 +1,6 @@
 import Room from "../models/roomModels.js";
 import cloudinary from "../config/cloudinary.js";
-import { getAvailablityRoom } from "../services/bookings/availabilityService";
+import { getAvailabilityRoom } from "../services/bookings/availabilityService.js";
 
 export const createRoom = async (req, res) => {
   try {
@@ -217,7 +217,7 @@ export const checkRoomAvailability = async (req, res) => {
       });
     }
 
-    const availability = await getAvailablityRoom({
+    const availability = await getAvailabilityRoom({
       roomId,
       checkInDate,
       checkOutDate,

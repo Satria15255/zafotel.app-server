@@ -1,10 +1,20 @@
 import Booking from "../models/bookingModels.js";
 import Room from "../models/roomModels.js";
+import Payment from "../models/paymentModels.js";
 import { generateBookingCode } from "../utils/generateBookingCode.js";
+import { getAvailabilityRoom } from "../services/bookings/availabilityService.js";
 
 export const createBooking = async (req, res) => {
   try {
-    const { roomId, checkInDate, checkOutDate, unitsBooked, paymentMethod, userName, phoneNumber } = req.body;
+    const {
+      roomId,
+      checkInDate,
+      checkOutDate,
+      unitsBooked,
+      paymentMethod,
+      userName,
+      phoneNumber,
+    } = req.body;
 
     const room = await Room.findById(roomId);
     if (!room || !room.isActive) {
@@ -19,7 +29,9 @@ export const createBooking = async (req, res) => {
     const startOfCheckInDay = new Date(checkIn);
     startOfCheckInDay.setHours(0, 1, 0, 0);
 
-    const minBookingTime = new Date(startOfCheckInDay.getTime() - 12 * 60 * 60 * 1000);
+    const minBookingTime = new Date(
+      startOfCheckInDay.getTime() - 12 * 60 * 60 * 1000,
+    );
     const maxBookingTime = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
 
     if (now > minBookingTime) {
@@ -35,17 +47,16 @@ export const createBooking = async (req, res) => {
     }
 
     // Overlapping check
-    const overlappingBookings = await Booking.find({
-      room: roomId,
-      bookingStatus: { $nin: ["Cancelled", "No Show"] },
-      checkInDate: { $lt: checkOut },
-      checkOutDate: { $gt: checkIn },
+    const availability = await getAvailabilityRoom({
+      roomId,
+      checkInDate: checkIn,
+      checkOutDate: checkOut,
     });
 
-    const totalBookedUnits = overlappingBookings.reduce((sum, booking) => sum + booking.unitsBooked, 0);
-
-    if (totalBookedUnits + unitsBooked > room.totalUnits) {
-      return res.status(400).json({ message: "Room not available for selected dates" });
+    if (unitsBooked > availability.availableUnits) {
+      return res
+        .status(400)
+        .json({ message: "Room not available for selected dates" });
     }
 
     // ❗ Generate unique booking code
@@ -96,9 +107,20 @@ export const createBooking = async (req, res) => {
 
     await newBooking.save();
 
+    const newPayment = new Payment({
+      booking: newBooking._id,
+      user: req.user._id,
+      paymentMethod,
+      amount: totalPrice,
+      paymentStatus: "Unpaid",
+    });
+
+    await newPayment.save();
+
     res.status(201).json({
       message: "Booking created successfully",
       booking: newBooking,
+      payment: newPayment,
     });
   } catch (error) {
     res.status(500).json({
@@ -110,36 +132,52 @@ export const createBooking = async (req, res) => {
 
 export const getAllBookings = async (req, res) => {
   try {
-    const bookings = await Booking.find().populate("user", "name email").populate("room", "name price image");
+    const bookings = await Booking.find()
+      .populate("user", "name email")
+      .populate("room", "name price image");
     res.json(bookings);
   } catch (error) {
-    res.status(500).json({ message: "Failed get booking", error: error.message });
+    res
+      .status(500)
+      .json({ message: "Failed get booking", error: error.message });
   }
 };
 
 export const getUserBookings = async (req, res) => {
   try {
     const userId = req.user._id;
-    const bookings = await Booking.find({ user: userId }).populate("room", "name price  image");
+    const bookings = await Booking.find({ user: userId }).populate(
+      "room",
+      "name price  image",
+    );
     res.json(bookings);
   } catch (error) {
-    res.status(500).json({ message: "Failed get bookings", error: error.message });
+    res
+      .status(500)
+      .json({ message: "Failed get bookings", error: error.message });
   }
 };
 
 export const getBookingById = async (req, res) => {
   try {
-    const booking = await Booking.findById(req.params.id).populate("room", "name price image").populate("user", "name email");
+    const booking = await Booking.findById(req.params.id)
+      .populate("room", "name price image")
+      .populate("user", "name email");
 
     if (!booking) return res.status(404).json({ message: "Booking not found" });
 
-    if (booking.user._id.toString() !== req.user._id.toString() && req.user.role !== "admin") {
+    if (
+      booking.user._id.toString() !== req.user._id.toString() &&
+      req.user.role !== "admin"
+    ) {
       return res.status(403).json({ message: "Access denied" });
     }
 
     res.json(booking);
   } catch (error) {
-    res.status(500).json({ message: "Failed get bookings", error: error.message });
+    res
+      .status(500)
+      .json({ message: "Failed get bookings", error: error.message });
   }
 };
 
@@ -167,7 +205,9 @@ export const cancelBooking = async (req, res) => {
     const startOfCheckInDay = new Date(checkin);
     startOfCheckInDay.setHours(0, 1, 0, 0);
 
-    const refundDeadline = new Date(startOfCheckInDay.getTime() - 10 * 60 * 60 * 1000);
+    const refundDeadline = new Date(
+      startOfCheckInDay.getTime() - 10 * 60 * 60 * 1000,
+    );
 
     let refundPercentage = 1; //default 100%
 
@@ -194,7 +234,9 @@ export const cancelBooking = async (req, res) => {
       refundAmount,
     });
   } catch (error) {
-    res.status(404).json({ message: "Failed to cancel booking", error: error.message });
+    res
+      .status(404)
+      .json({ message: "Failed to cancel booking", error: error.message });
   }
 };
 
@@ -258,7 +300,9 @@ export const approvePayment = async (req, res) => {
     await booking.save();
     res.json({ message: "Payment Approved!" });
   } catch (error) {
-    res.status(500).json({ message: "Failed Aprroved Payment", error: error.message });
+    res
+      .status(500)
+      .json({ message: "Failed Aprroved Payment", error: error.message });
   }
 };
 
@@ -284,5 +328,3 @@ export const rejectPayment = async (req, res) => {
     });
   }
 };
-
-
