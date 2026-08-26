@@ -1,4 +1,5 @@
 import Booking from "../models/bookingModels.js";
+import Payment from "../models/paymentModels.js";
 
 export const startAutoExpireJob = () => {
   setInterval(
@@ -20,10 +21,22 @@ export const startAutoExpireJob = () => {
           booking.bookingStatus = "Cancelled";
           booking.paymentStatus = "Expired";
           await booking.save();
+
+          // Update related payment
+          await Payment.findOneAndUpdate(
+            {
+              booking: bookingId,
+            },
+            {
+              paymentStatus: "Expired",
+            },
+          );
         }
 
         if (expiredBookings.length > 0) {
-          console.log(`[AUTO-EXPIRE] ${expiredBookings.length} booking(s) expired`);
+          console.log(
+            `[AUTO-EXPIRE] ${expiredBookings.length} booking(s) expired`,
+          );
         }
 
         // =========================
