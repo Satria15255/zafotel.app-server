@@ -156,31 +156,6 @@ export const deleteRoom = async (req, res) => {
   }
 };
 
-export const bookRoom = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { unitsToBook } = req.body;
-
-    const room = await Room.findById(id);
-    if (!room) return res.status(404).json({ message: "Room not found" });
-
-    if (room.availableUnits < unitsToBook) {
-      return res.status(400).json({ message: "Not enough available units" });
-    }
-
-    room.bookedUnits += unitsToBook;
-    room.availableUnits = room.totalUnits - room.bookedUnits;
-    room.status = room.availableUnits > 0 ? "Available" : "Booked";
-
-    await room.save();
-    res.status(200).json({ message: "Room booked succesfully", room });
-  } catch (error) {
-    res
-      .status(500)
-      .json({ message: "Failed booking room", error: error.message });
-  }
-};
-
 export const cancelBooking = async (req, res) => {
   try {
     const { id } = req.params;

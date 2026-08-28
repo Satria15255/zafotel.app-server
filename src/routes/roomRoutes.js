@@ -15,7 +15,7 @@ const router = express.Router();
 router.post("/", protect, admin, upload.array("image", 4), createRoom);
 router.get("/", getAllRooms);
 router.get("/:id", getRoomById);
-router.get("/:id/available", checkRoomAvailability);
+router.get("/:roomId/available", checkRoomAvailability);
 router.put("/:id", protect, admin, upload.array("image", 4), updateRoom);
 router.delete("/:id", protect, admin, deleteRoom);
 

@@ -15,6 +15,9 @@ export const getAvailabilityRoom = async ({
 	const checkIn = new Date(checkInDate);
 	const checkOut = new Date(checkOutDate);
 
+	if (Number.isNaN(checkIn.getTime()) || Number.isNaN(checkOut.getTime())) {
+		throw new Error("Invalid booking date");
+	}
 	if (checkOut <= checkIn) {
 		throw new Error("Invalid check-out date");
 	}
@@ -23,15 +26,15 @@ export const getAvailabilityRoom = async ({
 		room: roomId,
 
 		bookingStatus: {
-			$nin: ["Cancelled", "No Show"],
+			$in: ["Pending", "Confirmed"],
 		},
 
 		checkInDate: {
-			$lt: checkIn,
+			$lt: checkOut,
 		},
 
 		checkOutDate: {
-			$gt: checkOut,
+			$gt: checkIn,
 		},
 	});
 
