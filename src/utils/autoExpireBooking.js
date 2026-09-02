@@ -25,7 +25,7 @@ export const startAutoExpireJob = () => {
           // Update related payment
           await Payment.findOneAndUpdate(
             {
-              booking: bookingId,
+              booking: booking._id,
             },
             {
               paymentStatus: "Expired",

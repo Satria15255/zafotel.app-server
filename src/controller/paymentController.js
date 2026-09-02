@@ -120,10 +120,11 @@ export const simulatePayment = async (req, res) => {
 
 		res.status(200).json({ message: "Payment succes", payment, booking });
 	} catch (error) {
-		res.statuss(500).json({
+		res.status(500).json({
 			message: "Payment Failed",
 			erorr: error.message,
 		});
+		console.log(error);
 	} finally {
 		session.endSession();
 	}

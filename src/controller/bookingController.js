@@ -173,7 +173,11 @@ export const getBookingById = async (req, res) => {
       return res.status(403).json({ message: "Access denied" });
     }
 
-    res.json(booking);
+    const payment = await Payment.findOne({ booking: booking._id });
+
+    return res
+      .status(200)
+      .json({ message: "fetch booking succes", booking, payment });
   } catch (error) {
     res
       .status(500)
@@ -237,94 +241,5 @@ export const cancelBooking = async (req, res) => {
     res
       .status(404)
       .json({ message: "Failed to cancel booking", error: error.message });
-  }
-};
-
-// Payment Controller
-export const confirmPayment = async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    const booking = await Booking.findById(id);
-
-    if (!booking) {
-      return res.status(404).json({ message: "Booking not found" });
-    }
-
-    if (booking.paymentMethod !== "Bank Transfer") {
-      return res.status(400).json({ message: "Invalid payment method" });
-    }
-
-    if (booking.paymentStatus !== "Unpaid") {
-      return res.status(400).json({ message: "Payment Submitted" });
-    }
-
-    if (booking.expiresAt && new Date() > booking.expiresAt) {
-      booking.bookingStatus = "Cancelled";
-      await booking.save();
-      return res.status(400).json({ message: "Booking Expired" });
-    }
-
-    booking.paymentProof = req.file.path;
-    booking.paymentStatus = "In review";
-
-    await booking.save();
-
-    res.json({ message: "Booking Successfully" });
-  } catch (error) {
-    res.status(500).json({
-      message: "Payment Failed",
-      error: error.message,
-    });
-  }
-};
-
-export const approvePayment = async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    const booking = await Booking.findById(id);
-
-    if (!booking) {
-      return res.status(404).json({ message: "Booking not found" });
-    }
-
-    if (booking.paymentStatus !== "Waiting Confirmation") {
-      return res.status(400).json({ message: "Invalid payment status" });
-    }
-
-    booking.paymentStatus = "Paid";
-    booking.bookingStatus = "Confirmed";
-    booking.confirmedAt = new Date();
-
-    await booking.save();
-    res.json({ message: "Payment Approved!" });
-  } catch (error) {
-    res
-      .status(500)
-      .json({ message: "Failed Aprroved Payment", error: error.message });
-  }
-};
-
-export const rejectPayment = async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    const booking = await Booking.findById(id);
-
-    if (!booking) {
-      return res.status(404).json({ message: "Booking not found" });
-    }
-
-    booking.paymentStatus = "Rejected";
-
-    await booking.save();
-
-    res.status(200).json({ message: "Payment Rejected" });
-  } catch (error) {
-    res.status(500).json({
-      message: "Rejected Failed",
-      error: error.message,
-    });
   }
 };
